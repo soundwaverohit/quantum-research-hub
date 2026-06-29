@@ -1,0 +1,35 @@
+# Idea — Ansatz depth vs VQE convergence on the TFIM
+
+**Status:** proposed ·
+**Novelty:** 2.5 · **Feasibility:** 4.8 ·
+**Compute:** small
+
+## Source papers
+- [2606.10001](https://arxiv.org/abs/2606.10001)
+- [2606.10005](https://arxiv.org/abs/2606.10005)
+
+## Observation
+Suggested by 'Hybrid QPEPS-QMERA ansatz with adaptive bond dimension for 2D lattices' and 3 related paper(s) in group B_vqe.
+
+## Hypothesis
+Increasing ansatz depth lowers VQE energy error on the small TFIM, with diminishing returns past a few layers.
+
+## Why it might work
+More layers add expressivity but also more parameters to optimize and more barren-plateau risk.
+
+## Smallest experiment
+Sweep ansatz_layers in {1,2,3} on a 3-site TFIM VQE; record energy error and parameter count.
+
+## Baseline
+Untrained ansatz (best of random parameter sets); equal-parameter generic ansatz.
+
+## Metric
+energy_error vs exact diagonalization; improvement over baseline.
+
+## Failure modes
+- overfitting to one seed
+- vanishing gradients at depth
+- no improvement past 2 layers
+
+## Expected runtime
+< 1 minute (CPU)

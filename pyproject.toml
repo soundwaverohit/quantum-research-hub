@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quantum-research-hub"
+version = "0.1.0"
+description = "Local-first, MCP-powered autonomous research hub for quantum computing."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Quantum Research Hub" }]
+
+dependencies = [
+  "mcp[cli]>=1.6",
+  "pydantic>=2.6",
+  "httpx>=0.27",
+  "feedparser>=6.0",
+  "numpy>=1.26",
+  "pandas>=2.0",
+  "streamlit>=1.29",
+  "python-dotenv>=1.0",
+  "PyYAML>=6.0",
+  "rich>=13.0",
+]
+
+[project.optional-dependencies]
+# PDF parsing is OPTIONAL. The MVP builds paper cards from arXiv metadata +
+# abstracts and never feeds full PDFs to Claude. Install this only if you want
+# local full-text parsing/chunking.
+pdf = ["pypdf>=4.0"]
+# Optional richer retrieval. The MVP ships a pure-Python lexical index instead.
+vector = ["chromadb>=0.4"]
+dev = ["pytest>=8.0", "pytest-cov>=4.0", "ruff>=0.4"]
+
+[project.scripts]
+qrh-daily = "orchestrator.daily_run:main"
+qrh-mcp = "researcher_mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["researcher_mcp*", "orchestrator*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

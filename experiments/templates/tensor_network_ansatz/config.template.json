@@ -1,0 +1,15 @@
+{
+  "template": "tensor_network_ansatz",
+  "n_spins": 3,
+  "j_coupling": 1.0,
+  "h_field": 1.0,
+  "seed": 7,
+  "max_iters": 20,
+  "restarts": 5,
+  "grid": 21,
+  "stability_seeds": [7, 8, 9],
+  "structured_param_range": [-2.5, 2.5],
+  "hardware_param_range": [0.0, 6.283185307179586],
+  "runtime_limit_seconds": 60,
+  "allowed_compute_mode": "small"
+}

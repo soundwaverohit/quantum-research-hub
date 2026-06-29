@@ -1,0 +1,14 @@
+{
+  "template": "vqe_baseline",
+  "n_spins": 3,
+  "j_coupling": 1.0,
+  "h_field": 1.0,
+  "ansatz_layers": 2,
+  "seed": 7,
+  "max_iters": 40,
+  "restarts": 3,
+  "grid": 12,
+  "stability_seeds": [7, 8, 9],
+  "runtime_limit_seconds": 60,
+  "allowed_compute_mode": "small"
+}

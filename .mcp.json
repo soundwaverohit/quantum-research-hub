@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "quantum-research-hub": {
+      "command": "/Users/rohitganti/miniconda3/bin/python3",
+      "args": ["-m", "researcher_mcp.server"],
+      "cwd": "/Users/rohitganti/Desktop/MyMCP/ResearchMCP",
+      "env": {}
+    }
+  }
+}

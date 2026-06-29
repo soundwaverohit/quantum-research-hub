@@ -1,0 +1,41 @@
+# --- Secrets ---
+.env
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Local databases (keep schema + seed, not the live DB) ---
+db/*.sqlite3
+db/*.sqlite3-journal
+
+# --- Generated artifacts ---
+data/papers/pdfs/
+data/papers/parsed/
+data/papers/cards/
+data/embeddings/
+data/logs/
+data/reports/daily/
+data/reports/weekly/
+experiments/runs/
+
+# Keep directory placeholders + seed/demo content tracked
+!**/.gitkeep
+!data/reports/**/SEED_*.md
+
+# --- Claude Code local settings (machine-specific) ---
+.claude/settings.local.json
+
+# --- OS ---
+.DS_Store

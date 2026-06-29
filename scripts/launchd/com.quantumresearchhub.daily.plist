@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Reference launchd agent for the Quantum Research Hub daily run.
+     `scripts/install_schedule.sh` regenerates this with your live python +
+     repo paths and loads it; this file is for inspection/version control.
+     Runs `orchestrator.daily_run --profile low` every day at 07:30. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.quantumresearchhub.daily</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/rohitganti/miniconda3/bin/python3</string>
+    <string>-m</string>
+    <string>orchestrator.daily_run</string>
+    <string>--profile</string>
+    <string>low</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/rohitganti/Desktop/MyMCP/ResearchMCP</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/rohitganti/miniconda3/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>7</integer>
+    <key>Minute</key><integer>30</integer>
+  </dict>
+  <!-- Logs live OUTSIDE the repo: ~/Desktop is TCC-protected and a background
+       launchd agent cannot open files there (spawn fails with EX_CONFIG). -->
+  <key>StandardOutPath</key>
+  <string>/Users/rohitganti/Library/Logs/QuantumResearchHub/daily.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/rohitganti/Library/Logs/QuantumResearchHub/daily.err.log</string>
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
