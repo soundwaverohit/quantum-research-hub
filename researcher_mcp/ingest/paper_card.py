@@ -17,6 +17,7 @@ from ..config import KEYWORD_GROUPS, get_config
 from ..logging_utils import get_logger
 from ..model_pass import JsonModelClient, ModelPassError, complete_prompt_json
 from ..storage.models import Paper, PaperCard, RecommendedAction
+from .concept_extractor import extract_from_paper
 
 log = get_logger("ingest.paper_card")
 
@@ -194,6 +195,9 @@ def _deterministic_card(paper: Paper, full_text: str | None = None) -> PaperCard
     )
     possible = [GROUP_EXPERIMENT[g] for g in matched_groups][:3]
 
+    concept_result = extract_from_paper(paper.title, paper.abstract, full_text)
+    concept_terms, concept_relations = concept_result.to_card_fields()
+
     return PaperCard(
         arxiv_id=paper.arxiv_id,
         title=paper.title,
@@ -213,6 +217,8 @@ def _deterministic_card(paper: Paper, full_text: str | None = None) -> PaperCard
         implementation_difficulty=difficulty,
         recommended_action=action,
         generated_by="deterministic",
+        concept_terms=concept_terms,
+        concept_relations=concept_relations,
     )
 
 

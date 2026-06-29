@@ -105,6 +105,25 @@ class PaperCard(BaseModel):
     implementation_difficulty: float = 0.0
     recommended_action: RecommendedAction = RecommendedAction.TRACK
     generated_by: str = "deterministic"  # "deterministic" | "model"
+    # Synthesis engine fields (optional; populated during ingestion)
+    concept_terms: list[str] = Field(default_factory=list)      # human-readable concept names
+    concept_relations: list[dict] = Field(default_factory=list) # [{source, target, relation, weight}]
+
+
+class Concept(BaseModel):
+    name: str
+    concept_type: str
+    description: str = ""
+    aliases: list[str] = Field(default_factory=list)
+    paper_count: int = 0
+
+
+class ConceptEdge(BaseModel):
+    source: str
+    target: str
+    relation: str
+    weight: float = 1.0
+    paper_ids: list[str] = Field(default_factory=list)
 
 
 class Idea(BaseModel):

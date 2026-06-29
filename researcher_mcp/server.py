@@ -26,6 +26,7 @@ from .storage.models import AgentEvent
 from .tools import (
     arxiv_tools,
     budget_tools,
+    concept_tools,
     dashboard_tools,
     experiment_tools,
     idea_tools,
@@ -219,6 +220,68 @@ def build_server():  # -> FastMCP
         """Return dashboard headline counts, recent activity, and budget status."""
         out = dashboard_tools.get_overview()
         _log_call("get_overview", {}, {"counts": out["counts"]})
+        return out
+
+    # ── Synthesis / Concept Graph ────────────────────────────────────────────
+
+    @mcp.tool()
+    def search_concepts(query: str, concept_type: str = "", limit: int = 20) -> dict:
+        """Search the concept graph for nodes matching a keyword.
+
+        concept_type filters to one of: method, ansatz, problem, model,
+        math_object, benchmark, field, hardware.
+        """
+        out = concept_tools.search_concepts(query, concept_type=concept_type or None, limit=limit)
+        _log_call("search_concepts", {"query": query, "type": concept_type}, {"n": out["count"]})
+        return out
+
+    @mcp.tool()
+    def get_concept_graph(
+        seed_concepts: list[str],
+        max_nodes: int = 50,
+        min_weight: float = 0.3,
+        max_hops: int = 2,
+    ) -> dict:
+        """Return a BFS concept subgraph around seed concepts for synthesis.
+
+        Each node has {name, concept_type, description, paper_count}.
+        Each edge has {source, target, relation, weight, paper_count}.
+        Use this to find how methods, ansätze, and problems connect across papers.
+        """
+        out = concept_tools.get_concept_graph(seed_concepts, max_nodes=max_nodes, min_weight=min_weight, max_hops=max_hops)
+        _log_call("get_concept_graph", {"seeds": seed_concepts}, {"nodes": out["node_count"], "edges": out["edge_count"]})
+        return out
+
+    @mcp.tool()
+    def get_bridge_concepts(concept_a: str, concept_b: str) -> dict:
+        """Find the shortest concept-graph path bridging two research concepts.
+
+        Returns {path, hops, edges} where each edge shows the relation type and
+        shared papers. Useful for identifying cross-field synthesis opportunities.
+        """
+        out = concept_tools.get_bridge_concepts(concept_a, concept_b)
+        _log_call("get_bridge_concepts", {"a": concept_a, "b": concept_b}, {"found": out["found"], "hops": out.get("hops")})
+        return out
+
+    @mcp.tool()
+    def get_concept_neighborhood(concept_name: str, relation: str = "", min_weight: float = 0.0) -> dict:
+        """Return 1-hop neighbors of a concept with paper evidence.
+
+        relation filters to a specific edge type, e.g. 'improves_on' or 'applies_to'.
+        """
+        out = concept_tools.get_concept_neighborhood(concept_name, relation=relation or None, min_weight=min_weight)
+        _log_call("get_concept_neighborhood", {"concept": concept_name, "relation": relation}, {"neighbors": out["neighbor_count"]})
+        return out
+
+    @mcp.tool()
+    def get_top_concepts(limit: int = 30, concept_type: str = "") -> dict:
+        """Return the most paper-cited concepts across all ingested papers.
+
+        concept_type filters to method | ansatz | problem | model | math_object |
+        benchmark | field | hardware.
+        """
+        out = concept_tools.get_top_concept_list(limit=limit, concept_type=concept_type or None)
+        _log_call("get_top_concepts", {"limit": limit, "type": concept_type}, {"n": out["count"]})
         return out
 
     return mcp

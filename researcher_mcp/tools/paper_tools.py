@@ -14,11 +14,13 @@ import json
 from ..config import get_config
 from ..ingest.arxiv_client import ArxivClient
 from ..ingest.chunker import make_chunks
+from ..ingest.concept_extractor import extract_from_paper
 from ..ingest.paper_card import generate_card, save_card
 from ..ingest.pdf_downloader import download_pdf
 from ..ingest.pdf_parser import parse_pdf, pdf_available
 from ..logging_utils import get_logger
 from ..storage import repository as repo
+from ..storage.concept_graph import update_graph_from_paper
 from ..storage.models import Paper, PaperStatus
 
 log = get_logger("tools.paper")
@@ -79,6 +81,15 @@ def _ingest_paper_model(
         recommended_action=card.recommended_action.value,
         status=PaperStatus.CARDED.value,
     )
+
+    # Update concept graph — failure must never abort ingestion
+    try:
+        concept_result = extract_from_paper(paper.title, paper.abstract, full_text)
+        graph_stats = update_graph_from_paper(paper.arxiv_id, concept_result)
+    except Exception as _exc:  # noqa: BLE001
+        log.warning("concept graph update failed for %s: %s", paper.arxiv_id, _exc)
+        graph_stats = {"concepts_added": 0, "edges_added": 0}
+
     return {
         "arxiv_id": paper.arxiv_id,
         "status": "ingested",
@@ -88,6 +99,9 @@ def _ingest_paper_model(
         "relevance_score": card.relevance_score,
         "recommended_action": card.recommended_action.value,
         "generated_by": card.generated_by,
+        "concept_terms": card.concept_terms,
+        "graph_concepts_added": graph_stats["concepts_added"],
+        "graph_edges_added": graph_stats["edges_added"],
         "error": None,
     }
 

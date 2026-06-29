@@ -101,6 +101,47 @@ CREATE TABLE IF NOT EXISTS budget_events (
   notes                 TEXT
 );
 
+-- =============================================================================
+-- Synthesis Engine: concept graph
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS concepts (
+  name          TEXT PRIMARY KEY,
+  concept_type  TEXT NOT NULL,        -- method | ansatz | problem | model | math_object | benchmark | field | hardware
+  description   TEXT DEFAULT '',
+  aliases_json  TEXT DEFAULT '[]',
+  paper_count   INTEGER DEFAULT 0,
+  created_at    TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS paper_concepts (
+  arxiv_id      TEXT NOT NULL,
+  concept_name  TEXT NOT NULL,
+  score         REAL DEFAULT 0.0,     -- salience (normalized mention frequency)
+  created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (arxiv_id, concept_name),
+  FOREIGN KEY(arxiv_id) REFERENCES papers(arxiv_id),
+  FOREIGN KEY(concept_name) REFERENCES concepts(name)
+);
+
+CREATE TABLE IF NOT EXISTS concept_edges (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  source        TEXT NOT NULL,
+  target        TEXT NOT NULL,
+  relation      TEXT NOT NULL,        -- improves_on | generalizes | applies_to | requires | enables | combines | compared_to | benchmarked_on | co_occurs
+  weight        REAL DEFAULT 1.0,     -- accumulates with each new paper evidence
+  paper_ids_json TEXT DEFAULT '[]',
+  created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(source, target, relation)
+);
+
+CREATE INDEX IF NOT EXISTS idx_concepts_type       ON concepts(concept_type);
+CREATE INDEX IF NOT EXISTS idx_concepts_count      ON concepts(paper_count DESC);
+CREATE INDEX IF NOT EXISTS idx_paper_concepts_c    ON paper_concepts(concept_name);
+CREATE INDEX IF NOT EXISTS idx_edges_source        ON concept_edges(source);
+CREATE INDEX IF NOT EXISTS idx_edges_target        ON concept_edges(target);
+CREATE INDEX IF NOT EXISTS idx_edges_relation      ON concept_edges(relation);
+
 -- Helpful indexes for the dashboard and daily run.
 CREATE INDEX IF NOT EXISTS idx_papers_published ON papers(published_date);
 CREATE INDEX IF NOT EXISTS idx_papers_status    ON papers(status);
