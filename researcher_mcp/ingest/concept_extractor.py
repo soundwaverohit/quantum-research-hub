@@ -610,6 +610,33 @@ RELATION_WEIGHT: dict[str, float] = {
     "co_occurs": 0.3,
 }
 
+# Per-relation confidence used as the supervision signal in the exported
+# dataset. Typed relations are far more trustworthy than bare co-occurrence.
+RELATION_CONFIDENCE: dict[str, float] = {
+    "improves_on": 0.85,
+    "generalizes": 0.8,
+    "combines": 0.78,
+    "applied_to": 0.72,
+    "requires": 0.7,
+    "enables": 0.68,
+    "benchmarked_on": 0.75,
+    "compared_to": 0.6,
+    "co_occurs": 0.25,
+}
+
+# Natural-language phrasing of each relation, used to render training samples.
+RELATION_PHRASE: dict[str, str] = {
+    "improves_on": "improves on",
+    "generalizes": "generalizes",
+    "combines": "is combined with",
+    "applied_to": "is applied to",
+    "requires": "relies on",
+    "enables": "enables",
+    "benchmarked_on": "is benchmarked on",
+    "compared_to": "is compared with",
+    "co_occurs": "co-occurs with",
+}
+
 _COMPILED_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(p, re.IGNORECASE), r) for p, r in _REL_DEFS
 ]
@@ -635,6 +662,9 @@ class ConceptRelation:
     relation: str  # one of RELATION_WEIGHT keys
     weight: float
     evidence: str  # truncated sentence for provenance
+    char_start: int = 0   # offset of the evidence sentence in the source blob
+    char_end: int = 0
+    confidence: float = 0.0
 
 
 @dataclass
@@ -732,18 +762,57 @@ def find_concept_mentions(text: str) -> list[ConceptMention]:
 # Relation extraction (sentence-level)
 # ---------------------------------------------------------------------------
 
+def _split_sentences_with_offsets(text: str) -> list[tuple[str, int]]:
+    """Split into sentences, preserving each sentence's char offset in ``text``.
+
+    The offset lets every relation cite an exact span of the source document —
+    essential provenance for the training dataset.
+    """
+    out: list[tuple[str, int]] = []
+    pos = 0
+    for raw in re.split(r"(?<=[.!?])\s+", text):
+        if not raw:
+            continue
+        # Locate this sentence at or after the running cursor.
+        idx = text.find(raw, pos)
+        if idx == -1:
+            idx = pos
+        stripped = raw.strip()
+        if stripped:
+            lead = len(raw) - len(raw.lstrip())
+            out.append((stripped, idx + lead))
+        pos = idx + len(raw)
+    return out
+
+
 def _split_sentences(text: str) -> list[str]:
-    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+    return [s for s, _ in _split_sentences_with_offsets(text)]
 
 
-def _sentence_relations(sentence: str, mentions: list[ConceptMention]) -> list[ConceptRelation]:
-    """Extract typed (or co-occurrence) relations from mentions in one sentence."""
+def _sentence_relations(
+    sentence: str, mentions: list[ConceptMention], *, sentence_offset: int = 0
+) -> list[ConceptRelation]:
+    """Extract typed (or co-occurrence) relations from mentions in one sentence.
+
+    ``sentence_offset`` is the sentence's start position in the full document so
+    each relation can record absolute ``char_start``/``char_end`` provenance.
+    """
     if len(mentions) < 2:
         return []
 
     low = sentence.lower()
-    evidence = sentence[:200]
+    evidence = sentence[:240]
+    char_start = sentence_offset
+    char_end = sentence_offset + len(sentence)
     relations: list[ConceptRelation] = []
+
+    def make(src: str, tgt: str, rel: str) -> ConceptRelation:
+        return ConceptRelation(
+            source=src, target=tgt, relation=rel,
+            weight=RELATION_WEIGHT.get(rel, 1.0),
+            evidence=evidence, char_start=char_start, char_end=char_end,
+            confidence=RELATION_CONFIDENCE.get(rel, 0.5),
+        )
 
     # Collect all relation patterns that fire in this sentence
     fired: list[tuple[re.Match, str]] = []
@@ -757,10 +826,7 @@ def _sentence_relations(sentence: str, mentions: list[ConceptMention]) -> list[C
         for i, a in enumerate(mentions):
             for b in mentions[i + 1:]:
                 if a.canonical != b.canonical:
-                    relations.append(ConceptRelation(
-                        a.canonical, b.canonical, "co_occurs",
-                        RELATION_WEIGHT["co_occurs"], evidence,
-                    ))
+                    relations.append(make(a.canonical, b.canonical, "co_occurs"))
         return relations
 
     # Typed: for each fired pattern, find source (before verb) and target (after verb)
@@ -785,10 +851,7 @@ def _sentence_relations(sentence: str, mentions: list[ConceptMention]) -> list[C
         if key in seen:
             continue
         seen.add(key)
-        relations.append(ConceptRelation(
-            src, tgt, rel_type,
-            RELATION_WEIGHT.get(rel_type, 1.0), evidence,
-        ))
+        relations.append(make(src, tgt, rel_type))
 
     return relations
 
@@ -812,12 +875,13 @@ def extract_from_paper(
 
     all_mentions = find_concept_mentions(blob)
 
-    # Per-sentence relation extraction
-    sentences = _split_sentences(blob)
+    # Per-sentence relation extraction, preserving document offsets for provenance.
     all_relations: list[ConceptRelation] = []
-    for sent in sentences:
+    for sent, offset in _split_sentences_with_offsets(blob):
         sent_mentions = find_concept_mentions(sent)
-        all_relations.extend(_sentence_relations(sent, sent_mentions))
+        all_relations.extend(
+            _sentence_relations(sent, sent_mentions, sentence_offset=offset)
+        )
 
     # Deduplicate: keep highest-weight instance of each (src, tgt, rel) triple
     best: dict[tuple[str, str, str], ConceptRelation] = {}

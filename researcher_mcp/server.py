@@ -28,6 +28,7 @@ from .tools import (
     budget_tools,
     concept_tools,
     dashboard_tools,
+    dataset_tools,
     experiment_tools,
     idea_tools,
     memory_tools,
@@ -282,6 +283,38 @@ def build_server():  # -> FastMCP
         """
         out = concept_tools.get_top_concept_list(limit=limit, concept_type=concept_type or None)
         _log_call("get_top_concepts", {"limit": limit, "type": concept_type}, {"n": out["count"]})
+        return out
+
+    # ── Indexing pipeline / dataset export ───────────────────────────────────
+
+    @mcp.tool()
+    def build_concept_index(reset: bool = False, limit: int = 0) -> dict:
+        """(Re)build the concept-map index from every stored paper.
+
+        Streams papers through concept extraction + domain-general term mining
+        into a single batched writer. reset clears mined concepts + evidence
+        first (the curated seed ontology is preserved).
+        """
+        out = dataset_tools.build_concept_index(reset=reset, limit=limit or None)
+        _log_call("build_concept_index", {"reset": reset, "limit": limit}, out)
+        return out
+
+    @mcp.tool()
+    def get_index_stats() -> dict:
+        """Return concept/edge/evidence/mined-term counts for the concept-map index."""
+        out = dataset_tools.get_index_stats()
+        _log_call("get_index_stats", {}, {"concepts": out.get("concepts_total")})
+        return out
+
+    @mcp.tool()
+    def export_reasoning_dataset(formats: list[str] | None = None, min_confidence: float = 0.5) -> dict:
+        """Export the concept map as a first-principles reasoning dataset (JSONL).
+
+        formats: any of triples, chains, qa, contrastive (default: all four).
+        Each record carries provenance back to the source papers and evidence.
+        """
+        out = dataset_tools.export_reasoning_dataset(formats=formats, min_confidence=min_confidence)
+        _log_call("export_reasoning_dataset", {"formats": formats}, {"total": out.get("total")})
         return out
 
     return mcp

@@ -27,7 +27,38 @@ log = get_logger("storage.db")
 TABLES = (
     "papers", "paper_chunks", "ideas", "experiments",
     "experiment_runs", "agent_events", "budget_events",
+    # Synthesis engine / concept-map index
+    "concepts", "paper_concepts", "concept_edges",
+    "relation_evidence", "concept_aliases", "mined_terms",
 )
+
+# Full-text virtual tables (created opportunistically; dropped on reset).
+FTS_TABLES = ("papers_fts", "evidence_fts")
+
+# Columns added to pre-existing tables after their first release. Applied
+# idempotently on every init so older dev databases self-upgrade.
+_COLUMN_MIGRATIONS: dict[str, dict[str, str]] = {
+    "concepts": {"source": "TEXT DEFAULT 'seed'", "salience": "REAL DEFAULT 0.0"},
+    "concept_edges": {"evidence_count": "INTEGER DEFAULT 0"},
+    "paper_concepts": {"mention_count": "INTEGER DEFAULT 0"},
+}
+
+
+def _apply_column_migrations(conn: sqlite3.Connection) -> None:
+    """Add any missing columns to existing tables (additive, non-destructive)."""
+    existing_tables = {
+        r["name"] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    for table, cols in _COLUMN_MIGRATIONS.items():
+        if table not in existing_tables:
+            continue
+        present = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for col, decl in cols.items():
+            if col not in present:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+                log.info("migrated %s: added column %s", table, col)
 
 
 def connect(db_path: Path | None = None) -> sqlite3.Connection:
@@ -62,6 +93,7 @@ def init_db(cfg: Config | None = None) -> Path:
     schema_sql = cfg.schema_path.read_text(encoding="utf-8")
     with get_connection() as conn:
         conn.executescript(schema_sql)
+        _apply_column_migrations(conn)
     log.info("Initialized DB at %s", cfg.db_path)
     return cfg.db_path
 
@@ -92,7 +124,7 @@ def reset_db(confirm: bool) -> None:
         # trip an implicit-DELETE FK violation (which would roll the whole
         # reset back and silently keep stale rows).
         conn.execute("PRAGMA foreign_keys = OFF;")
-        for t in TABLES:
+        for t in (*FTS_TABLES, *TABLES):
             conn.execute(f"DROP TABLE IF EXISTS {t}")
     init_db()
     log.info("DB reset complete.")

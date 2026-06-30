@@ -94,6 +94,9 @@ scripts/dev.sh              # seed + launch the dashboard
 | **Dashboard (recommended, zero deps)** | `python -m apps.dashboard.server` → http://127.0.0.1:8533 |
 | **Dashboard (Streamlit)** | `streamlit run apps/dashboard/Home.py` → http://localhost:8501 |
 | **MCP server** | `python -m researcher_mcp.server` (stdio) |
+| **Build the concept map** | `python -m researcher_mcp.indexing.pipeline build --reset` |
+| **Concept-map stats** | `python -m researcher_mcp.indexing.pipeline stats` |
+| **Export reasoning dataset** | `python -m researcher_mcp.indexing.dataset_export --format all` |
 | **Tests** | `python -m pytest` |
 
 > **Dashboard note:** the stdlib dashboard (`python -m apps.dashboard.server`) has
@@ -112,6 +115,59 @@ scripts/dev.sh              # seed + launch the dashboard
 > On `low`, the pipeline discovers/ingests/ranks/ideates but **does not create or
 > run experiments** (cap 0) — by design. Use `--profile medium` to exercise the
 > full build → run → validate flow. The seed script uses `medium`.
+
+---
+
+## Synthesis engine: conceptual maps → reasoning dataset
+
+Beyond per-paper cards, the hub maintains a **concept-map index** over the whole
+corpus and can export it as a **first-principles training dataset for scientific
+reasoning models**. Every ingested paper is indexed automatically; you can also
+(re)build the whole map from stored papers at any time.
+
+**Pipeline:** `papers → concept extraction + term mining → evidence-backed graph → JSONL dataset`
+
+- **Concepts** come from two sources: a curated quantum-computing **seed ontology**
+  (~95 concepts: methods, ansätze, models, math objects, benchmarks, fields,
+  hardware) and a **domain-general term miner** (acronym+definition detection,
+  scientific head-noun phrases) that grows the vocabulary from *any* corpus.
+  Mined candidates are auto-promoted to concepts when well-evidenced.
+- **Relations** are typed (`improves_on`, `generalizes`, `applies_to`, `requires`,
+  `enables`, `combines`, `compared_to`, `benchmarked_on`, plus low-confidence
+  `co_occurs`). Each relation persists the **exact evidence sentence + char
+  offsets + a confidence score** — the supervision signal for training.
+- **Storage** is a batched SQLite writer (one connection per build, not one per
+  row) plus FTS5 full-text indexes. `concept_edges` is re-derived from evidence,
+  so re-indexing is idempotent.
+
+```bash
+python -m researcher_mcp.indexing.pipeline build --reset   # build map from all stored papers
+python -m researcher_mcp.indexing.pipeline stats           # concept/edge/evidence counts
+python -m researcher_mcp.indexing.dataset_export --format all --min-confidence 0.5
+```
+
+**Four exported dataset formats** (JSONL in `data/datasets/`, each record carries
+provenance back to arXiv IDs + evidence):
+
+| format | unit | teaches |
+|---|---|---|
+| `triples` | `(source, relation, target)` + evidence sentence | atomic grounded facts |
+| `chains` | multi-hop reasoning trace, evidence per hop | transitive/compositional reasoning |
+| `qa` | grounded question/answer over a concept neighborhood | retrieval-grounded answering |
+| `contrastive` | two papers characterizing the same pair differently | evidence-weighing / disagreement |
+
+**MCP tools:** `build_concept_index`, `get_index_stats`, `export_reasoning_dataset`,
+plus `search_concepts`, `get_concept_graph`, `get_bridge_concepts`,
+`get_concept_neighborhood`, `get_top_concepts`.
+
+> **Dataset yield depends on input richness.** The relation extractor is
+> deterministic and high-precision but low-recall: on **abstracts alone**, most
+> concept pairs co-occur without an explicit relation verb in the same sentence,
+> so they become low-confidence `co_occurs` (filtered at `--min-confidence 0.5`).
+> Ingesting **full-text PDFs** (`ingest_paper(..., download_pdf=True)` with the
+> `pdf` extra) multiplies typed-relation density. The relation *direction* is also
+> a nearest-concept heuristic (no dependency parsing) — every row keeps its
+> evidence sentence so direction is correctable downstream or by a later model pass.
 
 ---
 
@@ -169,9 +225,10 @@ a single non-`small` run when you have reviewed it.
 researcher_mcp/        # MCP server + tools + ingestion + storage (the capability layer)
   server.py            # FastMCP server (python -m researcher_mcp.server)
   config.py            # paths, budget profiles, categories, keyword groups
-  tools/               # arxiv, paper, memory, idea, experiment, runner, budget, dashboard
-  ingest/              # arxiv_client, paper_card, chunker, pdf_* (optional)
-  storage/             # schema.sql, db.py, models.py (pydantic), repository.py, vector_store.py
+  tools/               # arxiv, paper, memory, idea, experiment, runner, budget, dashboard, concept, dataset
+  ingest/              # arxiv_client, paper_card, chunker, concept_extractor, pdf_* (optional)
+  indexing/            # writer (batched), term_miner, graph_store, pipeline, dataset_export
+  storage/             # schema.sql, db.py, models.py (pydantic), repository.py, concept_graph.py, vector_store.py
 orchestrator/          # the autonomous daily layer
   daily_run.py         # python -m orchestrator.daily_run --profile {low,medium,high}
   budget_manager.py    # enforces caps, records usage

@@ -14,13 +14,11 @@ import json
 from ..config import get_config
 from ..ingest.arxiv_client import ArxivClient
 from ..ingest.chunker import make_chunks
-from ..ingest.concept_extractor import extract_from_paper
 from ..ingest.paper_card import generate_card, save_card
 from ..ingest.pdf_downloader import download_pdf
 from ..ingest.pdf_parser import parse_pdf, pdf_available
 from ..logging_utils import get_logger
 from ..storage import repository as repo
-from ..storage.concept_graph import update_graph_from_paper
 from ..storage.models import Paper, PaperStatus
 
 log = get_logger("tools.paper")
@@ -82,13 +80,19 @@ def _ingest_paper_model(
         status=PaperStatus.CARDED.value,
     )
 
-    # Update concept graph — failure must never abort ingestion
+    # Index into the concept map (concepts, evidence, mined terms). Failure must
+    # never abort ingestion of the paper itself.
     try:
-        concept_result = extract_from_paper(paper.title, paper.abstract, full_text)
-        graph_stats = update_graph_from_paper(paper.arxiv_id, concept_result)
+        from ..indexing.pipeline import index_single_paper
+
+        # Ensure the in-DB paper carries the parsed-text path so the indexer can
+        # mine full text when available.
+        if full_text and not paper.parsed_text_path:
+            paper.parsed_text_path = str(get_config().parsed_dir / f"{paper.arxiv_id}.txt")
+        graph_stats = index_single_paper(paper)
     except Exception as _exc:  # noqa: BLE001
-        log.warning("concept graph update failed for %s: %s", paper.arxiv_id, _exc)
-        graph_stats = {"concepts_added": 0, "edges_added": 0}
+        log.warning("concept-map indexing failed for %s: %s", paper.arxiv_id, _exc)
+        graph_stats = {"evidence": 0, "promoted_concepts": 0}
 
     return {
         "arxiv_id": paper.arxiv_id,
@@ -100,8 +104,8 @@ def _ingest_paper_model(
         "recommended_action": card.recommended_action.value,
         "generated_by": card.generated_by,
         "concept_terms": card.concept_terms,
-        "graph_concepts_added": graph_stats["concepts_added"],
-        "graph_edges_added": graph_stats["edges_added"],
+        "graph_evidence_added": graph_stats.get("evidence", 0),
+        "graph_promoted_concepts": graph_stats.get("promoted_concepts", 0),
         "error": None,
     }
 

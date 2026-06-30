@@ -151,6 +151,11 @@ class Config:
         return self.data_dir / "reports"
 
     @property
+    def datasets_dir(self) -> Path:
+        """Output directory for exported first-principles training datasets."""
+        return self.data_dir / "datasets"
+
+    @property
     def daily_reports_dir(self) -> Path:
         return self.reports_dir / "daily"
 
@@ -168,6 +173,7 @@ class Config:
             self.data_dir, self.pdf_dir, self.parsed_dir, self.cards_dir,
             self.ideas_dir, self.logs_dir, self.reports_dir, self.daily_reports_dir,
             self.reports_dir / "weekly", self.data_dir / "embeddings",
+            self.datasets_dir,
             self.experiments_dir, self.experiment_runs_dir, self.db_path.parent,
         ):
             d.mkdir(parents=True, exist_ok=True)

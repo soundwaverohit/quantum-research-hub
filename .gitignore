@@ -28,6 +28,7 @@ data/embeddings/
 data/logs/
 data/reports/daily/
 data/reports/weekly/
+data/datasets/
 experiments/runs/
 
 # Keep directory placeholders + seed/demo content tracked

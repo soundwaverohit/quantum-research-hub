@@ -28,108 +28,56 @@ log = get_logger("storage.concept_graph")
 
 
 # ---------------------------------------------------------------------------
-# Low-level writes
-# ---------------------------------------------------------------------------
-
-def _upsert_concept(name: str, concept_type: str, description: str, aliases: list[str]) -> None:
-    with get_connection() as conn:
-        conn.execute(
-            """
-            INSERT INTO concepts (name, concept_type, description, aliases_json, paper_count)
-            VALUES (?, ?, ?, ?, 0)
-            ON CONFLICT(name) DO UPDATE SET
-              concept_type  = excluded.concept_type,
-              description   = COALESCE(NULLIF(excluded.description, ''), concepts.description),
-              aliases_json  = excluded.aliases_json
-            """,
-            (name, concept_type, description, json.dumps(aliases)),
-        )
-
-
-def _increment_paper_count(name: str) -> None:
-    with get_connection() as conn:
-        conn.execute(
-            "UPDATE concepts SET paper_count = paper_count + 1 WHERE name = ?", (name,)
-        )
-
-
-def _upsert_paper_concept(arxiv_id: str, concept_name: str, score: float) -> None:
-    with get_connection() as conn:
-        conn.execute(
-            """
-            INSERT INTO paper_concepts (arxiv_id, concept_name, score)
-            VALUES (?, ?, ?)
-            ON CONFLICT(arxiv_id, concept_name) DO UPDATE SET
-              score = MAX(excluded.score, paper_concepts.score)
-            """,
-            (arxiv_id, concept_name, score),
-        )
-
-
-def _upsert_edge(source: str, target: str, relation: str, weight_delta: float, paper_id: str | None) -> None:
-    # Normalize direction for symmetric relations so we don't double-count
-    if relation in ("co_occurs", "compared_to") and source > target:
-        source, target = target, source
-
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT id, weight, paper_ids_json FROM concept_edges WHERE source=? AND target=? AND relation=?",
-            (source, target, relation),
-        ).fetchone()
-
-        if row:
-            ids: list[str] = json.loads(row["paper_ids_json"] or "[]")
-            if paper_id and paper_id not in ids:
-                ids.append(paper_id)
-            conn.execute(
-                "UPDATE concept_edges SET weight = weight + ?, paper_ids_json = ? WHERE id = ?",
-                (weight_delta, json.dumps(ids), row["id"]),
-            )
-        else:
-            ids = [paper_id] if paper_id else []
-            conn.execute(
-                """
-                INSERT INTO concept_edges (source, target, relation, weight, paper_ids_json)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (source, target, relation, weight_delta, json.dumps(ids)),
-            )
-
-
-# ---------------------------------------------------------------------------
 # Public: ingest
 # ---------------------------------------------------------------------------
 
-def update_graph_from_paper(arxiv_id: str, result: ConceptExtractionResult) -> dict[str, int]:
+def update_graph_from_paper(
+    arxiv_id: str, result: ConceptExtractionResult, *, recompute: bool = True
+) -> dict[str, int]:
     """Persist one paper's extraction result into the concept graph.
 
-    Returns {"concepts_added": N, "edges_added": N} for logging.
+    Delegates to the batched indexing writer (one connection, evidence rows with
+    provenance) rather than the old per-row connection-per-write path. Edges are
+    re-derived from the persisted evidence so re-indexing is idempotent.
+
+    Returns {"concepts_added": N, "edges_added": N} for logging/back-compat.
     """
-    scores = result.concept_scores()
-    seen: set[str] = set()
+    # Imported lazily to avoid any storage<->indexing import-time coupling.
+    from ..indexing.graph_store import index_extraction
+    from ..indexing.writer import BatchWriter
 
-    for canon in result.unique_concept_names():
-        if canon not in CONCEPT_REGISTRY:
-            continue
-        meta = CONCEPT_REGISTRY[canon]
-        _upsert_concept(canon, meta.type, meta.description, list(meta.aliases))
-        _upsert_paper_concept(arxiv_id, canon, scores.get(canon, 0.0))
-        if canon not in seen:
-            seen.add(canon)
-            _increment_paper_count(canon)
-
-    edge_count = 0
-    for rel in result.relations:
-        if rel.source not in CONCEPT_REGISTRY or rel.target not in CONCEPT_REGISTRY:
-            continue
-        _upsert_edge(rel.source, rel.target, rel.relation, rel.weight, arxiv_id)
-        edge_count += 1
+    with BatchWriter() as writer:
+        stats = index_extraction(writer, arxiv_id, result)
+        if recompute:
+            writer.recompute_aggregates()
 
     log.info(
-        "concept graph updated for %s: %d concepts, %d relations",
-        arxiv_id, len(seen), edge_count,
+        "concept graph updated for %s: %d concepts, %d evidence rows",
+        arxiv_id, stats["concepts"], stats["evidence"],
     )
-    return {"concepts_added": len(seen), "edges_added": edge_count}
+    return {"concepts_added": stats["concepts"], "edges_added": stats["evidence"]}
+
+
+def get_relation_evidence(
+    source: str, target: str, relation: str | None = None, limit: int = 10
+) -> list[dict]:
+    """Return persisted evidence sentences backing a concept relation."""
+    with get_connection() as conn:
+        if relation:
+            rows = conn.execute(
+                """SELECT arxiv_id, source, target, relation, evidence_text, section, confidence
+                   FROM relation_evidence WHERE source=? AND target=? AND relation=?
+                   ORDER BY confidence DESC LIMIT ?""",
+                (source, target, relation, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT arxiv_id, source, target, relation, evidence_text, section, confidence
+                   FROM relation_evidence WHERE source=? AND target=?
+                   ORDER BY confidence DESC LIMIT ?""",
+                (source, target, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------
